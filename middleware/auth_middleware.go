@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	"uas_backend/helper"
-	"uas_backend/utils"
+	"UASBE/helper"
+	"UASBE/utils"
 )
 
 func RBAC(requiredPermission string) fiber.Handler {
