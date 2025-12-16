@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	model "uas_backend/app/model/Postgresql"
+	model "UASBE/model/Postgresql"
 
 	"github.com/google/uuid"
 )

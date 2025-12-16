@@ -2,11 +2,11 @@ package route
 
 import (
 	"database/sql"
-	"uas_backend/helper"
-	"uas_backend/middleware"
-	model "uas_backend/model/Postgresql"
-	"uas_backend/repository"
-	"uas_backend/service"
+	"UASBE/helper"
+	"UASBE/middleware"
+	model "UASBE/model/Postgresql"
+	"UASBE/repository"
+	"UASBE/service"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -108,4 +108,6 @@ func SetupRoutes(app *fiber.App, db *sql.DB, mongoColl *mongo.Collection) {
 	})
 
 	// TODO: User routes
+
+	
 }

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	model "uas_backend/app/model/Postgresql"
-	"uas_backend/app/repository"
+	model "UASBE/model/Postgresql"
+	"UASBE/repository"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
