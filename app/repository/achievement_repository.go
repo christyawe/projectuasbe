@@ -2,14 +2,14 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
-	mongodb "UASBE/model/MongoDB"
-	model "UASBE/model/Postgresql"
+	mongodb "UASBE/app/model/MongoDB"
+	model "UASBE/app/model/Postgresql"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -47,14 +47,15 @@ type AchievementRepository interface {
 	AddAttachmentToAchievement(ctx context.Context, mongoAchievementID, fileName, fileURL, fileType string) error
 	GetStudentWithUserByID(ctx context.Context, studentID uuid.UUID) (*model.StudentWithUser, error)
 	GetStudentAchievements(ctx context.Context, studentID uuid.UUID, page, limit int) ([]model.AchievementWithStudent, int, error)
+	GetAllStudentIDs(ctx context.Context) ([]uuid.UUID, error)
 }
 
 type achievementRepo struct {
-	pgDB      *sql.DB
+	pgDB      *pgxpool.Pool
 	mongoColl *mongo.Collection
 }
 
-func NewAchievementRepository(pgDB *sql.DB, mongoColl *mongo.Collection) AchievementRepository {
+func NewAchievementRepository(pgDB *pgxpool.Pool, mongoColl *mongo.Collection) AchievementRepository {
 	return &achievementRepo{
 		pgDB:      pgDB,
 		mongoColl: mongoColl,
@@ -67,7 +68,7 @@ func (r *achievementRepo) GetStudentByUserID(ctx context.Context, userID uuid.UU
               FROM students WHERE user_id = $1`
 
 	var s model.Student
-	err := r.pgDB.QueryRowContext(ctx, query, userID).Scan(
+	err := r.pgDB.QueryRow(ctx, query, userID).Scan(
 		&s.ID, &s.UserID, &s.StudentID, &s.Program_Study,
 		&s.Academic_Year, &s.AdvisorID, &s.Created_at,
 	)
@@ -93,7 +94,7 @@ func (r *achievementRepo) SaveAchievementReference(ctx context.Context, ref mode
 		id, student_id, mongo_achievement_id, status, created_at, updated_at
 	) VALUES ($1, $2, $3, $4, $5, $6)`
 
-	_, err := r.pgDB.ExecContext(ctx, query,
+	_, err := r.pgDB.Exec(ctx, query,
 		ref.ID, ref.StudentID, ref.MongoAchievementID, ref.Status, ref.CreatedAt, ref.UpdatedAt,
 	)
 	return err
@@ -106,7 +107,7 @@ func (r *achievementRepo) GetAchievementReferenceByID(ctx context.Context, achie
               FROM achievement_references WHERE id = $1`
 
 	var ref model.AchievementReference
-	err := r.pgDB.QueryRowContext(ctx, query, achievementID).Scan(
+	err := r.pgDB.QueryRow(ctx, query, achievementID).Scan(
 		&ref.ID, &ref.StudentID, &ref.MongoAchievementID, &ref.Status,
 		&ref.SubmittedAt, &ref.VerifiedAt, &ref.VerifiedBy, &ref.RejectionNote,
 		&ref.CreatedAt, &ref.UpdatedAt,
@@ -124,7 +125,7 @@ func (r *achievementRepo) UpdateAchievementStatusToSubmitted(ctx context.Context
               WHERE id = $3`
 
 	now := time.Now()
-	_, err := r.pgDB.ExecContext(ctx, query, now, now, achievementID)
+	_, err := r.pgDB.Exec(ctx, query, now, now, achievementID)
 	return err
 }
 
@@ -133,7 +134,7 @@ func (r *achievementRepo) GetAdvisorIDByStudentID(ctx context.Context, studentID
 	query := `SELECT advisor_id FROM students WHERE id = $1`
 
 	var advisorID uuid.UUID
-	err := r.pgDB.QueryRowContext(ctx, query, studentID).Scan(&advisorID)
+	err := r.pgDB.QueryRow(ctx, query, studentID).Scan(&advisorID)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -166,7 +167,7 @@ func (r *achievementRepo) UpdateAchievementReferenceToDeleted(ctx context.Contex
               WHERE id = $2`
 
 	now := time.Now()
-	_, err := r.pgDB.ExecContext(ctx, query, now, achievementID)
+	_, err := r.pgDB.Exec(ctx, query, now, achievementID)
 	return err
 }
 
@@ -176,7 +177,7 @@ func (r *achievementRepo) GetLecturerByUserID(ctx context.Context, userID uuid.U
               FROM lecturers WHERE user_id = $1`
 
 	var l model.Lecturers
-	err := r.pgDB.QueryRowContext(ctx, query, userID).Scan(
+	err := r.pgDB.QueryRow(ctx, query, userID).Scan(
 		&l.ID, &l.UserID, &l.LecturerID, &l.Department, &l.Created_at,
 	)
 	if err != nil {
@@ -189,7 +190,7 @@ func (r *achievementRepo) GetLecturerByUserID(ctx context.Context, userID uuid.U
 func (r *achievementRepo) GetStudentIDsByAdvisorID(ctx context.Context, advisorID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT id FROM students WHERE advisor_id = $1`
 
-	rows, err := r.pgDB.QueryContext(ctx, query, advisorID)
+	rows, err := r.pgDB.Query(ctx, query, advisorID)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +250,7 @@ func (r *achievementRepo) GetAchievementsWithStudentInfo(ctx context.Context, st
 
 	// Get total count
 	var total int
-	err := r.pgDB.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.pgDB.QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -260,7 +261,7 @@ func (r *achievementRepo) GetAchievementsWithStudentInfo(ctx context.Context, st
 	args = append(args, limit, offset)
 
 	// Execute query
-	rows, err := r.pgDB.QueryContext(ctx, baseQuery, args...)
+	rows, err := r.pgDB.Query(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -313,7 +314,7 @@ func (r *achievementRepo) UpdateAchievementStatusToVerified(ctx context.Context,
               WHERE id = $4`
 
 	now := time.Now()
-	_, err := r.pgDB.ExecContext(ctx, query, lecturerID, now, now, achievementID)
+	_, err := r.pgDB.Exec(ctx, query, lecturerID, now, now, achievementID)
 	return err
 }
 
@@ -323,7 +324,7 @@ func (r *achievementRepo) GetStudentByID(ctx context.Context, studentID uuid.UUI
               FROM students WHERE id = $1`
 
 	var s model.Student
-	err := r.pgDB.QueryRowContext(ctx, query, studentID).Scan(
+	err := r.pgDB.QueryRow(ctx, query, studentID).Scan(
 		&s.ID, &s.UserID, &s.StudentID, &s.Program_Study,
 		&s.Academic_Year, &s.AdvisorID, &s.Created_at,
 	)
@@ -340,7 +341,7 @@ func (r *achievementRepo) UpdateAchievementStatusToRejected(ctx context.Context,
               WHERE id = $3`
 
 	now := time.Now()
-	_, err := r.pgDB.ExecContext(ctx, query, rejectionNote, now, achievementID)
+	_, err := r.pgDB.Exec(ctx, query, rejectionNote, now, achievementID)
 	return err
 }
 
@@ -356,7 +357,7 @@ func (r *achievementRepo) GetAchievementStatusHistory(ctx context.Context, achie
 		ORDER BY asl.created_at ASC
 	`
 
-	rows, err := r.pgDB.QueryContext(ctx, query, achievementID)
+	rows, err := r.pgDB.Query(ctx, query, achievementID)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +389,7 @@ func (r *achievementRepo) LogAchievementStatusChange(ctx context.Context, log mo
 		id, achievement_id, status, changed_by, rejection_note, created_at
 	) VALUES ($1, $2, $3, $4, $5, $6)`
 
-	_, err := r.pgDB.ExecContext(ctx, query,
+	_, err := r.pgDB.Exec(ctx, query,
 		log.ID, log.AchievementID, log.Status, log.ChangedBy, log.RejectionNote, log.CreatedAt,
 	)
 	return err
@@ -450,7 +451,7 @@ func (r *achievementRepo) GetAllAchievementsForAdmin(ctx context.Context, filter
 
 	// Get total count
 	var total int
-	err := r.pgDB.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.pgDB.QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -481,7 +482,7 @@ func (r *achievementRepo) GetAllAchievementsForAdmin(ctx context.Context, filter
 	args = append(args, limit, offset)
 
 	// Execute query
-	rows, err := r.pgDB.QueryContext(ctx, baseQuery, args...)
+	rows, err := r.pgDB.Query(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -534,7 +535,7 @@ func (r *achievementRepo) GetTotalAchievements(ctx context.Context, studentIDs [
 	}
 
 	var total int
-	err := r.pgDB.QueryRowContext(ctx, query, args...).Scan(&total)
+	err := r.pgDB.QueryRow(ctx, query, args...).Scan(&total)
 	return total, err
 }
 
@@ -563,7 +564,7 @@ func (r *achievementRepo) GetStatisticsByType(ctx context.Context, studentIDs []
 		argCount++
 	}
 
-	rows, err := r.pgDB.QueryContext(ctx, query, args...)
+	rows, err := r.pgDB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -637,7 +638,7 @@ func (r *achievementRepo) GetStatisticsByPeriod(ctx context.Context, studentIDs 
 
 	query += " GROUP BY period ORDER BY period DESC"
 
-	rows, err := r.pgDB.QueryContext(ctx, query, args...)
+	rows, err := r.pgDB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -693,7 +694,7 @@ func (r *achievementRepo) GetTopStudents(ctx context.Context, studentIDs []uuid.
 	query += fmt.Sprintf(" GROUP BY ar.student_id, s.student_id, u.full_name, s.program_study ORDER BY count DESC LIMIT $%d", argCount)
 	args = append(args, limit)
 
-	rows, err := r.pgDB.QueryContext(ctx, query, args...)
+	rows, err := r.pgDB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -736,7 +737,7 @@ func (r *achievementRepo) GetLevelDistribution(ctx context.Context, studentIDs [
 		argCount++
 	}
 
-	rows, err := r.pgDB.QueryContext(ctx, query, args...)
+	rows, err := r.pgDB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -807,7 +808,7 @@ func (r *achievementRepo) GetStatusDistribution(ctx context.Context, studentIDs 
 
 	query += " GROUP BY status ORDER BY count DESC"
 
-	rows, err := r.pgDB.QueryContext(ctx, query, args...)
+	rows, err := r.pgDB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -837,7 +838,7 @@ func (r *achievementRepo) UpdateAchievementInMongo(ctx context.Context, achievem
 // UpdateAchievementTimestamp updates the updated_at timestamp in PostgreSQL
 func (r *achievementRepo) UpdateAchievementTimestamp(ctx context.Context, achievementID uuid.UUID) error {
 	query := `UPDATE achievement_references SET updated_at = $1 WHERE id = $2`
-	_, err := r.pgDB.ExecContext(ctx, query, time.Now(), achievementID)
+	_, err := r.pgDB.Exec(ctx, query, time.Now(), achievementID)
 	return err
 }
 
@@ -847,7 +848,7 @@ func (r *achievementRepo) GetAchievementsByID(ctx context.Context, userID uuid.U
               FROM achievements WHERE id = $1`
 
 	var user model.Users
-	err := r.pgDB.QueryRowContext(ctx, query, userID).Scan(
+	err := r.pgDB.QueryRow(ctx, query, userID).Scan(
 		&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.FullName,
 		&user.RoleID, &user.ISActive, &user.CreatedAt, &user.UpdatedAt,
 	)
@@ -894,11 +895,20 @@ func (r *achievementRepo) GetStudentWithUserByID(ctx context.Context, studentID 
 
 	var student model.StudentWithUser
 
-	err := r.pgDB.QueryRowContext(ctx, query, studentID).Scan(
-		&student.ID, &student.UserID, &student.StudentID, &student.Program_Study,
-		&student.Academic_Year, &student.AdvisorID, &student.Created_at,
-		&student.Username, &student.FullName, &student.Email, &student.AdvisorName,
+	err := r.pgDB.QueryRow(ctx, query, studentID).Scan(
+		&student.ID,
+		&student.UserID,
+		&student.StudentID,
+		&student.ProgramStudy,
+		&student.AcademicYear,
+		&student.AdvisorID,
+		&student.CreatedAt,
+		&student.Username,
+		&student.FullName,
+		&student.Email,
+		&student.AdvisorName,
 	)
+
 	if err != nil {
 		return nil, err
 	}
@@ -911,7 +921,7 @@ func (r *achievementRepo) GetStudentAchievements(ctx context.Context, studentID 
 	// Count total
 	var total int
 	countQuery := `SELECT COUNT(*) FROM achievement_references ar WHERE ar.student_id = $1 AND ar.status != 'deleted'`
-	err := r.pgDB.QueryRowContext(ctx, countQuery, studentID).Scan(&total)
+	err := r.pgDB.QueryRow(ctx, countQuery, studentID).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -927,7 +937,7 @@ func (r *achievementRepo) GetStudentAchievements(ctx context.Context, studentID 
               ORDER BY ar.created_at DESC
               LIMIT $2 OFFSET $3`
 
-	rows, err := r.pgDB.QueryContext(ctx, query, studentID, limit, offset)
+	rows, err := r.pgDB.Query(ctx, query, studentID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -953,4 +963,29 @@ func (r *achievementRepo) GetStudentAchievements(ctx context.Context, studentID 
 	}
 
 	return achievements, total, nil
+}
+
+func (r *achievementRepo) GetAllStudentIDs(ctx context.Context) ([]uuid.UUID, error) {
+	query := `SELECT id FROM students`
+
+	rows, err := r.pgDB.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return ids, nil
 }

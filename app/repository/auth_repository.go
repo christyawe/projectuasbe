@@ -1,18 +1,19 @@
 package repository
 
 import (
-	"database/sql"
+	"context"
 	"errors"
-	model "UASBE/model/Postgresql"
+	model "UASBE/app/model/Postgresql"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type AuthRepository struct {
-	DB *sql.DB
+	DB *pgxpool.Pool
 }
 
-func NewAuthRepository(db *sql.DB) *AuthRepository {
+func NewAuthRepository(db *pgxpool.Pool) *AuthRepository {
 	return &AuthRepository{DB: db}
 }
 
@@ -31,7 +32,7 @@ func (r *AuthRepository) FindUserByEmailOrUsername(identifier string) (*model.Us
 		LIMIT 1
 	`
 
-	err := r.DB.QueryRow(query, identifier).Scan(
+	err := r.DB.QueryRow(context.Background(), query, identifier).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -45,7 +46,7 @@ func (r *AuthRepository) FindUserByEmailOrUsername(identifier string) (*model.Us
 	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err.Error() == "no rows in result set" {
 			return nil, "", errors.New("user not found")
 		}
 		return nil, "", err
@@ -62,7 +63,7 @@ func (r *AuthRepository) GetPermissionsByRoleID(roleID uuid.UUID) ([]string, err
 		WHERE rp.role_id = $1
 	`
 
-	rows, err := r.DB.Query(query, roleID)
+	rows, err := r.DB.Query(context.Background(), query, roleID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,14 +80,16 @@ func (r *AuthRepository) GetPermissionsByRoleID(roleID uuid.UUID) ([]string, err
 
 	return permissions, nil
 }
-func (r *AuthRepository) GetUserProfile(userID uuid.UUID) (*model.ProfileData, error) {
-	var user model.Users
-	var roleName string
+func (r *AuthRepository) GetUserProfile(userID uuid.UUID) (*model.UserProfileResponse, error) {
+	var (
+		user model.Users
+		roleName string
+	)
 
-	// Get user basic info
+	// 1. Ambil data user (WAJIB ADA)
 	userQuery := `
 		SELECT 
-			u.id, u.username, u.email, u.full_name, 
+			u.id, u.username, u.email, u.full_name,
 			u.role_id, u.is_active, u.created_at, u.updated_at,
 			r.name
 		FROM users u
@@ -95,7 +98,7 @@ func (r *AuthRepository) GetUserProfile(userID uuid.UUID) (*model.ProfileData, e
 		LIMIT 1
 	`
 
-	err := r.DB.QueryRow(userQuery, userID).Scan(
+	err := r.DB.QueryRow(context.Background(), userQuery, userID).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -108,15 +111,18 @@ func (r *AuthRepository) GetUserProfile(userID uuid.UUID) (*model.ProfileData, e
 	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, errors.New("user not found")
-		}
-		return nil, err
+		return nil, errors.New("user not found")
 	}
 
-	profileData := &model.ProfileData{}
+	response := &model.UserProfileResponse{
+		ID:       user.ID,
+		Username: user.Username,
+		Email:    user.Email,
+		FullName: user.FullName,
+		Role:     roleName,
+	}
 
-	// Check if user is a student
+	// 2. Cek student
 	studentQuery := `
 		SELECT student_id, program_study, academic_year, advisor_id
 		FROM students
@@ -124,19 +130,19 @@ func (r *AuthRepository) GetUserProfile(userID uuid.UUID) (*model.ProfileData, e
 		LIMIT 1
 	`
 
-	var studentID, programStudy, academicYear string
+	var student model.ProfileData
 	var advisorID uuid.UUID
-	err = r.DB.QueryRow(studentQuery, userID).Scan(&studentID, &programStudy, &academicYear, &advisorID)
+
+	err = r.DB.QueryRow(context.Background(), studentQuery, userID).
+		Scan(&student.StudentID, &student.ProgramStudy, &student.AcademicYear, &advisorID)
+
 	if err == nil {
-		// User is a student
-		profileData.StudentID = studentID
-		profileData.ProgramStudy = programStudy
-		profileData.AcademicYear = academicYear
-		profileData.AdvisorID = advisorID
-		return profileData, nil
+		student.AdvisorID = &advisorID
+		response.Profile = &student
+		return response, nil
 	}
 
-	// Check if user is a lecturer
+	// 3. Cek lecturer
 	lecturerQuery := `
 		SELECT lecturer_id, department
 		FROM lecturers
@@ -144,15 +150,15 @@ func (r *AuthRepository) GetUserProfile(userID uuid.UUID) (*model.ProfileData, e
 		LIMIT 1
 	`
 
-	var lecturerID, department string
-	err = r.DB.QueryRow(lecturerQuery, userID).Scan(&lecturerID, &department)
+	var lecturer model.ProfileData
+	err = r.DB.QueryRow(context.Background(), lecturerQuery, userID).
+		Scan(&lecturer.LecturerID, &lecturer.Department)
+
 	if err == nil {
-		// User is a lecturer
-		profileData.LecturerID = lecturerID
-		profileData.Department = department
-		return profileData, nil
+		response.Profile = &lecturer
+		return response, nil
 	}
 
-	// User has no specific profile (admin or other role)
-	return profileData, nil
+	// 4. ADMIN / ROLE LAIN → tetap return user info
+	return response, nil
 }
