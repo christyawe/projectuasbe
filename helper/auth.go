@@ -26,3 +26,22 @@ func GetUserIDFromContext(c *fiber.Ctx) (uuid.UUID, error) {
 
 	return userID, nil
 }
+
+// ExtractTokenFromHeader extracts the JWT token from the Authorization header
+func ExtractTokenFromHeader(c *fiber.Ctx) (string, error) {
+	authHeader := c.Get("Authorization")
+	if authHeader == "" {
+		return "", errors.New("authorization header not found")
+	}
+
+	if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+		return "", errors.New("invalid authorization header format")
+	}
+
+	token := authHeader[7:]
+	if token == "" {
+		return "", errors.New("token is empty")
+	}
+
+	return token, nil
+}
