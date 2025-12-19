@@ -13,13 +13,13 @@ type Achievement struct {
 	AchievementType string             `bson:"achievementType" json:"achievementType"`
 	Title           string             `bson:"title" json:"title"`
 	Description     string             `bson:"description" json:"description"`
-	Details AchievementDetails `bson:"details" json:"details"`
+	Details AchievementDetails 		   `bson:"details" json:"details"`
 	CustomFields map[string]interface{} `bson:"customFields,omitempty" json:"customFields,omitempty"`
-	Attachments []Attachment `bson:"attachments" json:"attachments"`
-	Tags []string `bson:"tags" json:"tags"`
-	Points int `bson:"points" json:"points"`
-	CreatedAt time.Time `bson:"createdAt" json:"createdAt"`
-	UpdatedAt time.Time `bson:"updatedAt" json:"updatedAt"`
+	Attachments []Attachment 			`bson:"attachments" json:"attachments"`
+	Tags []string 						`bson:"tags" json:"tags"`
+	Points int 							`bson:"points" json:"points"`
+	CreatedAt time.Time 				`bson:"createdAt" json:"createdAt"`
+	UpdatedAt time.Time 				`bson:"updatedAt" json:"updatedAt"`
 }
 
 type AchievementDetails struct {
