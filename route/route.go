@@ -14,98 +14,73 @@ import (
 )
 
 func SetupRoutes(app *fiber.App, db *sql.DB, mongoColl *mongo.Collection) {
-	api := app.Group("/api")
+	API := app.Group("/api/v1")
 
-	api.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"message": "API Running 🚀",
-		})
+	API.Get("/", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"message": "API v1 Running"})
 	})
 
-	authRepo := repository.NewAuthRepository(db)
-	authService := service.NewAuthService(authRepo)
+authRepo := repository.NewAuthRepository(db)
+authService := service.NewAuthService(authRepo)
+	
 
-	auth := api.Group("/auth")
 
-	auth.Post("/login", func(c *fiber.Ctx) error {
-		var req model.LoginRequest
-		if err := c.BodyParser(&req); err != nil {
-			return helper.Error(c, fiber.StatusBadRequest, "Invalid JSON body")
-		}
-
-		if req.Username == "" || req.Password == "" {
-			return helper.Error(c, fiber.StatusBadRequest, "Username and password are required")
-		}
-
-		resp, err := authService.Login(&req)
-		if err != nil {
-			switch err.Error() {
-			case "invalid username or password":
-				return helper.Error(c, fiber.StatusUnauthorized, err.Error())
-			case "account is inactive, please contact admin":
-				return helper.Error(c, fiber.StatusForbidden, err.Error())
-			default:
-				return helper.Error(c, fiber.StatusInternalServerError, "Internal Server Error")
-			}
-		}
-
-		return helper.Success(c, resp)
+       auth := API.Group("/auth")
+	auth.Post("/login", authService.LoginEndpoint)
+	auth.Post("/refresh", middleware.AuthMiddleware(""), func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"message": "Refresh endpoint - to be implemented"})
 	})
+	auth.Post("/logout", middleware.AuthMiddleware(""), authService.LogoutEndpoint)
+	auth.Get("/profile", middleware.AuthMiddleware(""), authService.ProfileEndpoint)
 
-	// Achievement routes
-	achievementRepo := repository.NewAchievementRepository(db, mongoColl)
-	achievementService := service.NewAchievementService(achievementRepo)
 
-	achievements := api.Group("/achievements")
-	achievements.Use(middleware.RBAC("")) // Require authentication
+userRepo := repository.NewUserRepository(db)
+userService := service.NewUserService(userRepo)
+	
+	// Users Routes (Admin only)
+	users := API.Group("/users")
+	users.Use(middleware.AuthMiddleware("manage_users"))
+	users.Get("/", userService.GetUsersEndpoint)
+	users.Get("/:id", userService.GetUserByIDEndpoint)
+	users.Post("/", userService.CreateUserEndpoint)
+	users.Put("/:id", userService.UpdateUserEndpoint)
+	users.Delete("/:id", userService.DeleteUserEndpoint)
+	users.Put("/:id/role", userService.UpdateUserRoleEndpoint)
 
-	// FR-004: Submit untuk Verifikasi
-	achievements.Post("/:id/submit", func(c *fiber.Ctx) error {
-		// Get achievement ID from URL params
-		achievementIDStr := c.Params("id")
-		achievementID, err := uuid.Parse(achievementIDStr)
-		if err != nil {
-			return helper.Error(c, fiber.StatusBadRequest, "Invalid achievement ID format")
-		}
 
-		// Get user info from JWT token (set by middleware)
-		claims := c.Locals("user_info")
-		if claims == nil {
-			return helper.Error(c, fiber.StatusUnauthorized, "User info not found")
-		}
+achievementRepo := repository.NewAchievementRepository(db, mongoColl)
+achievementService := service.NewAchievementService(achievementRepo)
 
-		userIDStr, ok := claims.(map[string]interface{})["user_id"].(string)
-		if !ok {
-			return helper.Error(c, fiber.StatusUnauthorized, "Invalid user ID in token")
-		}
+	// Achievements Routes
+	achievements := API.Group("/achievements")
+	achievements.Use(middleware.AuthMiddleware(""))
+	achievements.Get("/", achievementService.GetAchievementsEndpoint)
+	achievements.Get("/:id", achievementService.GetAchievementByIDEndpoint)
+	achievements.Post("/", achievementService.CreateAchievementEndpoint)
+	achievements.Put("/:id", achievementService.UpdateAchievementEndpoint)
+	achievements.Delete("/:id", achievementService.DeleteAchievementEndpoint)
+	achievements.Post("/:id/submit", achievementService.SubmitAchievementEndpoint)
+	achievements.Post("/:id/verify", achievementService.VerifyAchievementEndpoint)
+	achievements.Post("/:id/reject", achievementService.RejectAchievementEndpoint)
+	achievements.Get("/:id/history", achievementService.GetAchievementHistoryEndpoint)
+	achievements.Post("/:id/attachments", achievementService.UploadAttachmentEndpoint)
+	achievements.Get("/statistics", achievementService.GetAchievementStatisticsEndpoint)
 
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			return helper.Error(c, fiber.StatusUnauthorized, "Invalid user ID format")
-		}
 
-		// Call service to submit for verification
-		result, err := achievementService.SubmitForVerification(c.Context(), userID, achievementID)
-		if err != nil {
-			switch err.Error() {
-			case "student data not found for this user":
-				return helper.Error(c, fiber.StatusNotFound, err.Error())
-			case "achievement not found":
-				return helper.Error(c, fiber.StatusNotFound, err.Error())
-			case "unauthorized: achievement does not belong to this student":
-				return helper.Error(c, fiber.StatusForbidden, err.Error())
-			case "achievement must be in 'draft' status to submit":
-				return helper.Error(c, fiber.StatusBadRequest, err.Error())
-			default:
-				return helper.Error(c, fiber.StatusInternalServerError, "Failed to submit achievement")
-			}
-		}
+	// Students Routes
+	students := API.Group("/students")
+	students.Use(middleware.AuthMiddleware(""))
+	students.Get("/", userService.GetStudentsEndpoint)
+	students.Get("/:id", userService.GetStudentByIDEndpoint)
+	students.Get("/:id/achievements", userService.GetStudentAchievementsEndpoint)
+	students.Put("/:id/advisor", middleware.AuthMiddleware("manage_users"), userService.UpdateStudentAdvisorEndpoint)
 
-		return helper.Success(c, fiber.Map{
-			"message":     "Achievement submitted for verification successfully",
-			"achievement": result,
-		})
-	})
+	
+	// Lecturers Routes
+	lecturers := API.Group("/lecturers")
+	lecturers.Use(middleware.AuthMiddleware(""))
+	lecturers.Get("/", userService.GetLecturersEndpoint)
+	lecturers.Get("/:id/advisees", userService.GetLecturerAdviseesEndpoint)
 
 	// TODO: User routes
 
