@@ -22,6 +22,7 @@ func GenerateJWT(userID, username, role string, permissions []string) (string, e
 		"username":    username,
 		"role":        role,
 		"permissions": permissions,
+		"iat":         time.Now().Unix(),
 		"exp":         time.Now().Add(time.Hour * 24).Unix(),
 	}
 

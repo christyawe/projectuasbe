@@ -2,14 +2,14 @@ package utils
 
 import (
 	"sync"
-	model "UASBE/model/Postgresql"
+	model "UASBE/app/model/Postgresql"
 
 	"github.com/google/uuid"
 )
 
 // AchievementHistoryManager manages achievement history in memory
 type AchievementHistoryManager struct {
-	history map[uuid.UUID][]model.AchievementHistoryEntry // achievement_id -> history entries
+	history map[uuid.UUID][]model.AchievementStatusLog // achievement_id -> history entries
 	mu      sync.RWMutex
 }
 
@@ -25,34 +25,34 @@ func init() {
 // NewAchievementHistoryManager creates a new history manager
 func NewAchievementHistoryManager() *AchievementHistoryManager {
 	return &AchievementHistoryManager{
-		history: make(map[uuid.UUID][]model.AchievementHistoryEntry),
+		history: make(map[uuid.UUID][]model.AchievementStatusLog),
 	}
 }
 
 // AddEntry adds a history entry
-func (m *AchievementHistoryManager) AddEntry(entry model.AchievementHistoryEntry) {
+func (m *AchievementHistoryManager) AddEntry(entry model.AchievementStatusLog) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.history[entry.AchievementID]; !exists {
-		m.history[entry.AchievementID] = []model.AchievementHistoryEntry{}
+		m.history[entry.AchievementID] = []model.AchievementStatusLog{}
 	}
 
 	m.history[entry.AchievementID] = append(m.history[entry.AchievementID], entry)
 }
 
 // GetHistory gets history for an achievement
-func (m *AchievementHistoryManager) GetHistory(achievementID uuid.UUID) []model.AchievementHistoryEntry {
+func (m *AchievementHistoryManager) GetHistory(achievementID uuid.UUID) []model.AchievementStatusLog {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	entries, exists := m.history[achievementID]
 	if !exists {
-		return []model.AchievementHistoryEntry{}
+		return []model.AchievementStatusLog{}
 	}
 
 	// Return copy to prevent external modification
-	result := make([]model.AchievementHistoryEntry, len(entries))
+	result := make([]model.AchievementStatusLog, len(entries))
 	copy(result, entries)
 	return result
 }
