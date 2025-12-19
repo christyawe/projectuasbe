@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	model "UASBE/model/Postgresql"
-	"UASBE/repository"
+	model "UASBE/app/model/Postgresql"
+	"UASBE/app/repository"
 	"UASBE/utils"
 
 	"github.com/gofiber/fiber/v2"
@@ -16,7 +16,7 @@ import (
 type AuthService interface {
 	Login(ctx context.Context, req model.LoginRequest) (*model.LoginResponse, error)
 	Logout(ctx context.Context, token string) error
-	GetProfile(ctx context.Context, userID uuid.UUID) (*model.ProfileData, error)
+	GetProfile(ctx context.Context, userID uuid.UUID) (*model.UserProfileResponse, error) // <- ubah
 
 	// HTTP endpoints
 	LoginEndpoint(c *fiber.Ctx) error
@@ -60,7 +60,7 @@ func extractUserIDFromClaimsAuth(c *fiber.Ctx) (uuid.UUID, error) {
 func (s *authService) Login(ctx context.Context, req model.LoginRequest) (*model.LoginResponse, error) {
 	identifier := req.Username
 		if identifier == "" {
-			identifier = req.Email
+			identifier = req.Username
 		}
 
 	if identifier == "" {
@@ -116,7 +116,7 @@ func (s *authService) Logout(ctx context.Context, token string) error {
 	return nil
 }
 
-func (s *authService) GetProfile(ctx context.Context, userID uuid.UUID) (*model.ProfileData, error) {
+func (s *authService) GetProfile(ctx context.Context, userID uuid.UUID) (*model.UserProfileResponse, error) {
 	profile, err := s.authRepo.GetUserProfile(userID)
 	if err != nil {
 		return nil, err

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	model "UASBE/model/Postgresql"
-	"UASBE/repository"
+	model "UASBE/app/model/Postgresql"
+	"UASBE/app/repository"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -122,13 +122,26 @@ func (s *userService) CreateUser(ctx context.Context, req model.CreateUserReques
 	// 5. Create profile jika ada
 	if req.ProfileType != "" && req.ProfileData != nil {
 		if req.ProfileType == "student" {
+			// Validate required fields for student
+			if req.ProfileData.StudentID == "" {
+				return nil, errors.New("student_id is required for student profile")
+			}
+			if req.ProfileData.ProgramStudy == "" {
+				return nil, errors.New("program_study is required for student profile")
+			}
+			if req.ProfileData.AcademicYear == "" {
+				return nil, errors.New("academic_year is required for student profile")
+			}
+			if req.ProfileData.AdvisorID == nil {
+				return nil, errors.New("advisor_id is required for student profile")
+			}
 			student := &model.Student{
 				ID:            uuid.New(),
 				UserID:        user.ID,
 				StudentID:     req.ProfileData.StudentID,
 				Program_Study: req.ProfileData.ProgramStudy,
 				Academic_Year: req.ProfileData.AcademicYear,
-				AdvisorID:     req.ProfileData.AdvisorID,
+				AdvisorID:     *req.ProfileData.AdvisorID,
 				Created_at:    time.Now(),
 			}
 			err = s.repo.CreateStudentProfile(ctx, student)
@@ -136,6 +149,13 @@ func (s *userService) CreateUser(ctx context.Context, req model.CreateUserReques
 				return nil, errors.New("failed to create student profile")
 			}
 		} else if req.ProfileType == "lecturer" {
+			// Validate required fields for lecturer
+			if req.ProfileData.LecturerID == "" {
+				return nil, errors.New("lecturer_id is required for lecturer profile")
+			}
+			if req.ProfileData.Department == "" {
+				return nil, errors.New("department is required for lecturer profile")
+			}
 			lecturer := &model.Lecturers{
 				ID:         uuid.New(),
 				UserID:     user.ID,
@@ -332,6 +352,18 @@ func (s *userService) CreateUserEndpoint(c *fiber.Ctx) error {
 		case "email already exists":
 			return c.Status(409).JSON(fiber.Map{"error": err.Error()})
 		case "role not found":
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		case "student_id is required for student profile":
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		case "program_study is required for student profile":
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		case "academic_year is required for student profile":
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		case "advisor_id is required for student profile":
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		case "lecturer_id is required for lecturer profile":
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		case "department is required for lecturer profile":
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		default:
 			return c.Status(500).JSON(fiber.Map{"error": "Failed to create user"})
